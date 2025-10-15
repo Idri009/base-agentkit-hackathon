@@ -1,6 +1,7 @@
 // app/providers/pythActionProvider.js
 import { ActionProvider, CreateAction, Network } from "@coinbase/agentkit";
 import { z } from "zod";
+//import { zodToJsonSchema } from "zod-to-json-schema";
 
 // Define schema for fetching price
 const FetchPriceSchema = z.object({
@@ -91,6 +92,7 @@ export class NewPythActionProvider extends ActionProvider {
       - FX: EUR, GBP, JPY
       - Metals: XAU (Gold), XAG (Silver), XPT (Platinum), XPD (Palladium)
     `,
+    //schema: zodToJsonSchema(FetchPriceSchema),
     schema: FetchPriceSchema,
   })
   async getPrice(args = { tokenSymbol: "", quoteCurrency: "USD", assetType: "crypto" }) {

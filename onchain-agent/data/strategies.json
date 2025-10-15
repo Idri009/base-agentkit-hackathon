@@ -1,13 +1,1 @@
-[
-  {
-    "id": "1760230249622",
-    "symbol": "BRETT",
-    "contract": "0x532f27101965dd16442E59d40670FaF5eBB142E4",
-    "chainId": "8453",
-    "frequency": "low",
-    "risk": "high",
-    "active": true,
-    "createdAt": 1760230249622,
-    "meta": {}
-  }
-]
+[]

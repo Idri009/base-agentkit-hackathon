@@ -5,8 +5,19 @@ import { z } from "zod";
 // Dexscreener base API URL
 const DEXSCREENER_URL = "https://api.dexScreener.com/latest/dex/search?q=";
 
-// Schema for token search or discovery
-const DiscoverTokensSchema = z.object({
+// Token info interface
+interface DexToken {
+  baseToken: { name: string; symbol: string; address: string };
+  quoteToken: { symbol: string };
+  chainId: string;
+  dexId: string;
+  priceUsd?: string;
+  liquidity?: { usd?: number };
+  volume?: { h24?: number };
+  fdv?: number;
+}
+
+const TokenDetailSchema = z.object({
   query: z
     .string()
     .optional()
@@ -25,129 +36,119 @@ const DiscoverTokensSchema = z.object({
     ),
 });
 
-// Token info interface
-interface DexToken {
-  baseToken: { name: string; symbol: string; address: string };
-  quoteToken: { symbol: string };
-  chainId: string;
-  dexId: string;
-  priceUsd?: string;
-  liquidity?: { usd?: number };
-  volume?: { h24?: number };
-  fdv?: number;
-}
+
 
 /**
  * Dexscreener Action Provider
- * Uses Dexscreener's public API to discover and search for tokens on Base and other chains.
  */
 export class DexscreenerActionProvider extends ActionProvider {
-  supportsNetwork: (network: Network) => boolean;
+    supportsNetwork: (network: Network) => boolean;
 
-  constructor() {
-    super("dexScreener", []);
-    this.supportsNetwork = () => true;
-  }
-
-  private async fetchDexscreener(query: string): Promise<DexToken[]> {
-    const res = await fetch(`${DEXSCREENER_URL}${encodeURIComponent(query)}`);
-    if (!res.ok) {
-      throw new Error(`Dexscreener API error: ${res.status}`);
+    constructor() {
+        super("dexScreener", []);
+        this.supportsNetwork = () => true;
     }
-    const data = await res.json();
-    return data.pairs || [];
-  }
 
-  private filterByTier(tokens: DexToken[], tier: "top" | "mid" | "low"): DexToken[] {
-    const liquidity = (t: DexToken) => t.liquidity?.usd || 0;
-
-    switch (tier) {
-      case "top":
-        return tokens.filter((t) => liquidity(t) > 5_000_000);
-      case "mid":
-        return tokens.filter((t) => liquidity(t) >= 100_000 && liquidity(t) <= 5_000_000);
-      case "low":
-        return tokens.filter((t) => liquidity(t) < 100_000);
-      default:
-        return tokens;
+    private async fetchDexscreener(query: string): Promise<DexToken[]> {
+        const res = await fetch(`${DEXSCREENER_URL}${encodeURIComponent(query)}`);
+        if (!res.ok) {
+            throw new Error(`Dexscreener API error: ${res.status}`);
+        }
+        const data = await res.json();
+        return data.pairs || [];
     }
-  }
 
-  /*
-   * Token discovery with dexscreener
-   */
-  @CreateAction({
-    name: "discoverTokens",
-    description: `
-      Discover crypto tokens.
+    private filterByTier(tokens: DexToken[], tier: "top" | "mid" | "low"): DexToken[] {
 
-      This action can be used to:
-      - Search for a token by name or symbol (e.g. "PEPE")
-      - Discover top/mid/low cap tokens on a specific chain (e.g. "top memecoins on Base")
+        const liquidity = (t: DexToken) => t.liquidity?.usd || 0;
 
-      Always use this action when users ask about crypto tokens or coins except when asking about price.
+        switch (tier) {
+          case "top":
+            return tokens.filter((t) => liquidity(t) > 5_000_000);
+          case "mid":
+            return tokens.filter((t) => liquidity(t) >= 100_000 && liquidity(t) <= 5_000_000);
+          case "low":
+            return tokens.filter((t) => liquidity(t) < 100_000);
+          default:
+            return tokens;
+        }
+      }
 
-      Example user prompts:
-      - "Show me some memecoins on Base"
-      - "What is trending in crypto"
-      - "Give me midcap tokens trading on Base"
-    `,
-    schema: DiscoverTokensSchema,
-  })
-  async discoverTokens(args = { query: "", chain: "base", capTier: "top" }) {
+    /*
+     * Token pair detail with dexscreener
+     */
+    @CreateAction({
+        name: "tokenDetail",
+        description: `
+          get crypto token details.
 
-    console.log("DexScreenerActionProvider : Discover Tokens");
+          This action can be used to:
+          - Search for a token by name or symbol (e.g. "PEPE")
+          - Returns top/mid/low cap tokens on a specific chain (e.g. "BRETT on Base, or PENGU on Solana")
 
-    const { query, chain, capTier } = args;
-    const searchTerm = query || chain; // if no query, search chain for discovery
-    const tokens = await this.fetchDexscreener(searchTerm);
+          Use this action when asked about specific token information.
 
-    const filtered = tokens
-      .filter((t) => t.chainId === chain)
-      .sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
+          Example user prompts:
+          - "Show me some memecoins on Base"
+          - "What is trending in crypto"
+          - "Give me midcap tokens trading on Base"
+        `,
+        schema: TokenDetailSchema,
+    })
+    async tokenDetail(args = { query: "", chain: "base", capTier: "top" }) {
 
-    // Compute tier for each token individually
-    const annotated = filtered.map((t) => {
-        const value = t.fdv || t.liquidity?.usd || 0;
-        console.log("value",value)
-        let computedTier: "low" | "mid" | "top" = "low";
-        if (value > 1_000_000_000) computedTier = "top";
-        else if (value >= 10_000_000) computedTier = "mid";
+        const { query, chain, capTier } = args;
+        const searchTerm = query || chain; // if no query, search chain for all
+        const tokens = await this.fetchDexscreener(searchTerm);
 
-        return { ...t, computedTier };
-    });
+        console.log("DexScreenerActionProvider : tokenDetail", {query,chain,capTier});
 
-    const tiered = annotated.filter((t) => t.computedTier === capTier);
+        const filtered = tokens
+          .filter((t) => t.chainId === chain)
+          .sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
 
-    var final;
-    if (tiered.length === 0 && annotated.length > 0) { final = annotated; } else { final = tiered }
+        // Compute tier for each token individually
+        const annotated = filtered.map((t) => {
+            const value = t.fdv || t.liquidity?.usd || 0;
+            console.log("value",value)
+            let computedTier: "low" | "mid" | "top" = "low";
+            if (value > 1_000_000_000) computedTier = "top";
+            else if (value >= 10_000_000) computedTier = "mid";
 
-    console.log("tiered",tiered)
+            return { ...t, computedTier };
+        });
 
-    // Format results
-    const results = final.slice(0, 10).map((t) => ({
-      name: t.baseToken.name,
-      symbol: t.baseToken.symbol,
-      address: t.baseToken.address,
-      chain: t.chainId,
-      priceUsd: t.priceUsd,
-      liquidityUsd: t.liquidity?.usd,
-      volume24h: t.volume?.h24,
-      fdv: t.fdv,
-      dex: t.dexId,
-    }));
+        const tiered = annotated.filter((t) => t.computedTier === capTier);
 
-    console.log("results",results)
+        var final;
+        if (tiered.length === 0 && annotated.length > 0) { final = annotated; } else { final = tiered }
 
-    return JSON.stringify({
-      success: true,
-      query: query || null,
-      chain,
-      capTier,
-      count: results.length,
-      results,
-    });
-  }
+        console.log("tiered",tiered)
+
+        // Format results
+        const results = final.slice(0, 10).map((t) => ({
+          name: t.baseToken.name,
+          symbol: t.baseToken.symbol,
+          address: t.baseToken.address,
+          chain: t.chainId,
+          priceUsd: t.priceUsd,
+          liquidityUsd: t.liquidity?.usd,
+          volume24h: t.volume?.h24,
+          fdv: t.fdv,
+          dex: t.dexId,
+        }));
+
+        console.log("results",results)
+
+        return JSON.stringify({
+          success: true,
+          query: query || null,
+          chain,
+          capTier,
+          count: results.length,
+          results,
+        });
+    }
 }
 
 // Factory

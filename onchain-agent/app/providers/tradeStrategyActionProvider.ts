@@ -1,8 +1,10 @@
 // app/providers/tradeStrategyActionProvider.js
 import fs from "fs";
 import path from "path";
-import { ActionProvider, CreateAction, Network } from "@coinbase/agentkit";
-import { z } from "zod";
+import { ActionProvider, CreateAction, Network} from "@coinbase/agentkit";
+import { z, ZodTypeAny } from "zod";
+import { broadcastStrategy } from "@/app/utils/strategyBroadcast";
+
 
 // define the trading message
 interface Strategy {
@@ -18,20 +20,20 @@ interface Strategy {
 }
 
 // Define schema for a trade strategy
-const AddStrategySchema = z.object({
+export const AddStrategySchema = z.object({
   symbol: z.string().describe("Trading symbol, e.g. BTC/USD"),
   contract: z.string().describe("Contract Address, e.g. 0x..."),
   chainId: z.string().describe("Chain ID, e.g. 8453"),
   frequency: z.string().describe("Trading frequency: low | medium | high"),
   risk: z.string().describe("Risk level: low | medium | high"),
   active: z.boolean().default(true).describe("Whether the strategy is active"),
-  meta: z.record(z.any()).optional().describe("Extra metadata for strategy"),
+  meta: z.record(z.string(), z.unknown()).optional().describe("Extra metadata for strategy"),
 });
-const ListStrategiesSchema = z.object({});
-const RemoveStrategySchema = z.object({
+export const ListStrategiesSchema = z.object({});
+export const RemoveStrategySchema = z.object({
   id: z.string().describe("ID of the strategy to remove"),
 });
-const UpdateStrategySchema = AddStrategySchema.extend({
+export const UpdateStrategySchema = AddStrategySchema.extend({
   id: z.string().describe("ID of the strategy to update"),
 });
 
@@ -95,8 +97,13 @@ export class TradeStrategyActionProvider extends ActionProvider {
             throw new Error("addStrategy requires { symbol, contract, chainId }", { cause: newStrat });
         }
         strategies.push(newStrat);
+        console.log("addStrategy newStrat",newStrat);
         writeStrategies(strategies);
-        console.log("TradeStrategyActionProvider - adding new strategy",newStrat)
+        console.log("addStrategy strategies",strategies);
+
+        broadcastStrategy(strategies);
+
+        console.log("TradeStrategyActionProvider - adding new strategy", strategies)
         return JSON.stringify({ message: "Strategy added", strategy: newStrat });
     }
 
@@ -124,6 +131,9 @@ export class TradeStrategyActionProvider extends ActionProvider {
         const before = strategies.length;
         strategies = strategies.filter((s:{id:string}) => s.id !== id);
         writeStrategies(strategies);
+        broadcastStrategy(strategies);
+        console.log("strategies",strategies);
+
         return JSON.stringify({
             message: "Strategy removed",
             id,
@@ -145,6 +155,7 @@ export class TradeStrategyActionProvider extends ActionProvider {
         if (idx === -1) throw new Error("Strategy not found");
         strategies[idx] = { ...strategies[idx], ...args, id };
         writeStrategies(strategies);
+        broadcastStrategy(strategies);
         return JSON.stringify({ message: "Strategy updated", strategy: strategies[idx] });
     }
 

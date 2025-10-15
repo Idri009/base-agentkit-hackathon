@@ -9,7 +9,7 @@ import {
   WalletProvider,
   wethActionProvider,
   x402ActionProvider,
-  zeroXActionProvider,
+//  zeroXActionProvider,
 } from "@coinbase/agentkit";
 import {
   newPythActionProvider, // custom provider with robust price getter
@@ -20,6 +20,9 @@ import {
 import {
   dexScreenerActionProvider, // custom provider for based hackathon
 } from "@providers/dexScreenerActionProvider";
+import {
+  swapActionProvider, // custom provider for based hackathon
+} from "@providers/swapActionProvider";
 import * as fs from "fs";
 import { Address, Hex, LocalAccount } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -126,10 +129,11 @@ export async function prepareAgentkitAndWalletProvider(): Promise<{
         cdpApiActionProvider(),
         cdpSmartWalletActionProvider(),
         x402ActionProvider(),
-        zeroXActionProvider(),
+        // zeroXActionProvider(),
         newPythActionProvider(),
         tradeStrategyActionProvider(),
-        dexScreenerActionProvider()
+        dexScreenerActionProvider(),
+        swapActionProvider(),
       ],
     });
 
