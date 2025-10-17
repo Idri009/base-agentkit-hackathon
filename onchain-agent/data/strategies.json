@@ -1,1 +1,13 @@
-[]
+[
+  {
+    "id": "1760702589895",
+    "symbol": "BRETT/USD",
+    "contract": "0x532f27101965dd16442E59d40670FaF5eBB142E4",
+    "chainId": "8453",
+    "frequency": "medium",
+    "risk": "medium",
+    "active": true,
+    "createdAt": 1760702589895,
+    "meta": {}
+  }
+]

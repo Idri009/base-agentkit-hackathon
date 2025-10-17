@@ -1,7 +1,8 @@
 // app/providers/pythActionProvider.js
 import { ActionProvider, CreateAction, Network } from "@coinbase/agentkit";
 import { z } from "zod";
-//import { zodToJsonSchema } from "zod-to-json-schema";
+import { EventSource } from "eventsource";
+import { broadcastPrice } from "@/app/utils/priceBroadcast";
 
 // Define schema for fetching price
 const FetchPriceSchema = z.object({
@@ -9,6 +10,12 @@ const FetchPriceSchema = z.object({
   quoteCurrency: z.string().default("USD").describe("Quote currency, defaults to USD"),
   assetType: z.enum(["crypto", "equity", "fx", "metal"]).default("crypto").describe("Asset type"),
 });
+
+/*
+const SubscribePriceSchema = z.object({
+  feedId: z.string().describe("Price Feed Id"),
+});
+*/
 
 // Price feed cache interface
 interface PriceFeedCache {
@@ -54,10 +61,12 @@ export class NewPythActionProvider extends ActionProvider {
     };
   }
 
+  /*
   // Publish price updates to subscribers
   private publishPriceUpdate(data: PriceData) {
     this.subscribers.forEach((callback) => callback(data));
   }
+ */
 
   // Helper to get cache key
   private getCacheKey(args: { tokenSymbol: string; quoteCurrency: string; assetType: string }) {
@@ -102,12 +111,14 @@ export class NewPythActionProvider extends ActionProvider {
       throw new Error("getPrice requires { tokenSymbol }");
     }
 
+    let baseSymbol = args.tokenSymbol.split("/")[0];
+
     const cacheKey = this.getCacheKey(args);
     let priceFeedID = this.priceFeedCache.get(cacheKey)?.id;
 
     // Fetch price feed ID if not cached
     if (!priceFeedID) {
-      const url = `https://hermes.pyth.network/v2/price_feeds?query=${tokenSymbol}&asset_type=${assetType}`;
+      const url = `https://hermes.pyth.network/v2/price_feeds?query=${baseSymbol}&asset_type=${assetType}`;
       const response = await fetch(url);
 
       if (!response.ok) {
@@ -121,20 +132,20 @@ export class NewPythActionProvider extends ActionProvider {
       if (data.length === 0) {
         return JSON.stringify({
           success: false,
-          error: `No price feed found for ${tokenSymbol}`,
+          error: `No price feed found for ${baseSymbol}`,
         });
       }
 
       const filteredData = data.filter(
         (item: any) =>
-          item.attributes.base.toLowerCase() === tokenSymbol.toLowerCase() &&
+          item.attributes.base.toLowerCase() === baseSymbol.toLowerCase() &&
           item.attributes.quote_currency.toLowerCase() === quoteCurrency.toLowerCase()
       );
 
       if (filteredData.length === 0) {
         return JSON.stringify({
           success: false,
-          error: `No price feed found for ${tokenSymbol}/${quoteCurrency}`,
+          error: `No price feed found for ${baseSymbol}/${quoteCurrency}`,
         });
       }
 
@@ -155,7 +166,7 @@ export class NewPythActionProvider extends ActionProvider {
       priceFeedID = selectedFeed.id == undefined ? "" : selectedFeed.id;
       this.priceFeedCache.set(cacheKey, {
         id: priceFeedID,
-        tokenSymbol,
+        tokenSymbol: baseSymbol,
         quoteCurrency,
         assetType,
         feedType: selectedFeed.attributes.display_symbol,
@@ -200,10 +211,9 @@ export class NewPythActionProvider extends ActionProvider {
       priceFeedID,
       timestamp: Date.now(),
     };
-    console.log("DEBUG priceData",result)
 
     // Publish to subscribers
-    this.publishPriceUpdate(result);
+    // this.publishPriceUpdate(result);
 
     return JSON.stringify({
       success: true,
@@ -212,7 +222,7 @@ export class NewPythActionProvider extends ActionProvider {
   }
 
   // Helper function to format price (updated to preseve decimals)
-   private formatPrice(priceInfo: any): string {
+  private formatPrice(priceInfo: any): string {
     const price = BigInt(priceInfo.price);
     const exponent = Number(priceInfo.expo);
 
@@ -232,6 +242,52 @@ export class NewPythActionProvider extends ActionProvider {
     return scaled.toString();
   }
 
+  /**
+   * Subscribe to a live Pyth price feed using Server-Sent Events (SSE).
+   * Requires a valid priceFeedID (from getPrice).
+   */
+  async subscribeToPriceFeed(priceFeedID: string, tokenSymbol: string, strategyId: string) {
+    const streamUrl = `https://hermes.pyth.network/v2/updates/price/stream?ids[]=${priceFeedID}`;
+
+    // Note: EventSource is browser-native; for Node, use:
+    // import EventSource from "eventsource";
+    const eventSource = new EventSource(streamUrl);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const parsed = JSON.parse(event.data);
+        const priceInfo = parsed.parsed?.[0]?.price;
+        if (!priceInfo) return;
+
+        const price = this.formatPrice(priceInfo);
+        console.log("price",price)
+
+        const priceData = {
+          strategyId,
+          tokenSymbol,
+          quoteCurrency: "USD",
+          price,
+          priceFeedID,
+          timestamp: Date.now(),
+        };
+
+        broadcastPrice(priceData);
+        //this.publishPriceUpdate(priceData);
+      } catch (err) {
+        console.error("Error parsing Pyth SSE message:", err);
+      }
+    };
+
+    eventSource.onerror = (err) => {
+      console.error("Pyth SSE stream error:", err);
+      eventSource.close();
+    };
+
+    console.log(`[Pyth] Subscribed to live updates for ${priceFeedID}`);
+    return eventSource;
+  }
+
+  /*
   // Lightweight background loop to refresh prices
   runLoop(intervalMs = 60_000) {
     if (this.running) return;
@@ -250,11 +306,12 @@ export class NewPythActionProvider extends ActionProvider {
     this.running = false;
     this._interval = null;
   }
+ */
 
 }
 
 export const newPythActionProvider = () => {
   const p = new NewPythActionProvider();
-  p.runLoop();
+  // p.runLoop();
   return p;
 };

@@ -4,7 +4,8 @@ import path from "path";
 import { ActionProvider, CreateAction, Network} from "@coinbase/agentkit";
 import { z, ZodTypeAny } from "zod";
 import { broadcastStrategy } from "@/app/utils/strategyBroadcast";
-
+import { NewPythActionProvider } from "@providers/newPythActionProvider";
+import { EventSource } from "eventsource";
 
 // define the trading message
 interface Strategy {
@@ -47,17 +48,21 @@ if (!fs.existsSync(STRATEGY_FILE)) fs.writeFileSync(STRATEGY_FILE, "[]", "utf8")
 
 export class TradeStrategyActionProvider extends ActionProvider {
 
+    //private sources: Map<string, EventSource>;
+    private sources: Map<string, any>;
+    
     // required for ts , wg :/
     running: boolean;
     _interval: NodeJS.Timeout | null;
     supportsNetwork: (network: Network) => boolean;
+    private pyth: NewPythActionProvider;
 
-    constructor() {
-
-        console.log("DEBUG - INIT TradeStrategyActionProvider")
+    constructor(pyth:NewPythActionProvider) {
 
         super("tradeStrategy", []);
         this.supportsNetwork = (network: Network) => true;
+        this.pyth = pyth;
+        this.sources = new Map();
 
         this.running = false;
         this._interval = null;
@@ -96,10 +101,31 @@ export class TradeStrategyActionProvider extends ActionProvider {
         if (!(newStrat.symbol && newStrat.contract && newStrat.chainId)) {
             throw new Error("addStrategy requires { symbol, contract, chainId }", { cause: newStrat });
         }
+
+        // setup the price subscription (TODO: this is bad we have no check if this is the right price or not)
+        const feedResp = await this.pyth.getPrice({ tokenSymbol: args.symbol, quoteCurrency: "USD", assetType: "crypto" });
+        if (!feedResp) {
+            return;
+        }
+        const feedData = JSON.parse(feedResp);
+        const feedId = feedData.priceFeedID;
+
+        try {
+            const source = await this.pyth.subscribeToPriceFeed(feedId, args.symbol, newStrat.id);
+            this.sources.set(newStrat.id, source);
+        } catch (e) {
+            console.log(e);
+            return e;
+        }
+
+        /*
+        this.pyth.subscribeToPriceFeed((data) => {
+            console.log("Live update:", data);
+        });
+        */
+
         strategies.push(newStrat);
-        console.log("addStrategy newStrat",newStrat);
         writeStrategies(strategies);
-        console.log("addStrategy strategies",strategies);
 
         broadcastStrategy(strategies);
 
@@ -113,7 +139,6 @@ export class TradeStrategyActionProvider extends ActionProvider {
       schema: ListStrategiesSchema,
     })
     async listStrategies() {
-        console.log("DEBUG - TradeStrategyActionProvider : listStrategies");
         const strategies = readStrategies();
         return JSON.stringify({ strategies });
     }
@@ -125,14 +150,16 @@ export class TradeStrategyActionProvider extends ActionProvider {
     })
     async removeStrategy(args: { id: string | number } = { id: "" }) {
         const { id } = args;
-        console.log("DEBUG - TradeStrategyActionProvider : removeStrategy", id);
         if (!id) throw new Error("removeStrategy requires { id }");
         let strategies = readStrategies();
         const before = strategies.length;
         strategies = strategies.filter((s:{id:string}) => s.id !== id);
         writeStrategies(strategies);
         broadcastStrategy(strategies);
-        console.log("strategies",strategies);
+        let s = this.sources.get(String(id));
+        if (s) {
+            s.close();
+        }
 
         return JSON.stringify({
             message: "Strategy removed",
@@ -148,7 +175,6 @@ export class TradeStrategyActionProvider extends ActionProvider {
     })
     async updateStrategy(args: { id: string | number } = { id: "" }) {
         const { id } = args;
-        console.log("DEBUG - TradeStrategyActionProvider : updateStrategy", id);
         if (!id) throw new Error("updateStrategy requires { id }");
         const strategies = readStrategies();
         const idx = strategies.findIndex((s:{id:string}) => s.id === id);
@@ -164,7 +190,6 @@ export class TradeStrategyActionProvider extends ActionProvider {
 
         if (this.running) return;
         this.running = true;
-        console.log("TradeStrategyActionProvider: starting loop every", intervalMs, "ms");
         this._interval = setInterval(() => {
           const strategies = readStrategies().filter((s:{id:string,active:boolean}) => s.active !== false);
           for (const s of strategies) {
@@ -208,8 +233,8 @@ function writeStrategies(arr: Strategy[]) {
 
 }
 
-export const tradeStrategyActionProvider = () => {
-    const p = new TradeStrategyActionProvider();
+export const tradeStrategyActionProvider = (pyth: NewPythActionProvider) => {
+    const p = new TradeStrategyActionProvider(pyth);
     p.runLoop();
     return p;
 };

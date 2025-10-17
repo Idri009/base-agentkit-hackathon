@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useAgent } from "./hooks/useAgent"; // agent messaging from server.
 import { useStrategies } from "./hooks/useStrategies" // load strategies from server.
+import { useLivePrices } from "./hooks/useLivePrices"; // price feed
 import ReactMarkdown from "react-markdown";
 import Link from "next/link";
 import type { Strategy } from "@/app/types/strategy";
@@ -17,6 +18,7 @@ export default function Home() {
     const [input, setInput] = useState("");
     const { messages, sendMessage, isThinking } = useAgent();
     const { strategies, isLoading, loadStrategies, setStrategies } = useStrategies();
+    const prices = useLivePrices();
 
     // Ref for the messages container
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -27,13 +29,22 @@ export default function Home() {
     };
 
     useEffect(() => {
-      console.log("useEffectFired");
       const es = new EventSource("/api/strategy-stream");
-      console.log("es",es);
 
       es.onmessage = async (event) => {
         const fullList: Strategy[] = JSON.parse(event.data); 
         setStrategies(fullList);
+      };
+      return () => es.close();
+    }, []);
+
+    useEffect(() => {
+      const es = new EventSource("/api/prices-stream");
+
+      es.onmessage = async (event) => {
+        console.log("pricesEvent",event)
+        //const fullList: Strategy[] = JSON.parse(event.data); 
+        //setStrategies(fullList);
       };
       return () => es.close();
     }, []);
@@ -169,6 +180,14 @@ export default function Home() {
                         {s.risk}
                       </span>
                     </p>
+<div className="text-right">
+          {/* Directly reference the priceMap */}
+          <p className="text-lg font-mono">
+            {prices[s.id]?.price
+              ? `${prices[s.id].price} ${prices[s.id].quoteCurrency}`
+              : "—"}
+          </p>
+        </div>
                   </li>
                 ))}
               </ul>

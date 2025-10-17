@@ -200,23 +200,10 @@ export class SwapActionProvider extends ActionProvider {
         const slippageBps = parsed.slippageBps ?? 100; // default 1%
         const network = normalizeNetwork(parsed.network);
 
-        /*
-        // Create/fetch a CDP-managed owner account (server-side key)
-        const owner = await cdp.evm.getOrCreateAccount({ name: OWNER_NAME });
-        console.log("owner",owner)
-
-        // Create or fetch a Smart Account owned by that server-managed owner
-        const smartAccount = await cdp.evm.getOrCreateSmartAccount({ name: SMART_ACCOUNT_NAME, owner });
-        console.log("smartAccount", smartAccount)
-        */
-
         const cdp = getCdpClient();
         const ownerName = parsed.ownerName ?? "AgentOwner";
-        console.log("ownerName",ownerName)
         const owner = await cdp.evm.getOrCreateAccount({ name: ownerName });
-        console.log("owner", owner)
         const smartAccount = await cdp.evm.getOrCreateSmartAccount({ name: SMART_ACCOUNT_NAME, owner });
-        console.log("smartAccount", smartAccount)
 
         // Request a quote for the swap via the Smart Account
         const quote = await smartAccount.quoteSwap({
@@ -239,8 +226,6 @@ export class SwapActionProvider extends ActionProvider {
             console.log("no userOpHash, return")
             return { success: false, error: "Quote execution returned null" };
         }
-
-        console.log("swapActionProvider - userOpHash", userOpHash);
 
         // Optionally log the walletProvider address context
         if (walletProvider) {

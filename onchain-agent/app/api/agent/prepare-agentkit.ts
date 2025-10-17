@@ -27,6 +27,9 @@ import * as fs from "fs";
 import { Address, Hex, LocalAccount } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
+const pythProvider = newPythActionProvider();
+const tradeProvider = tradeStrategyActionProvider(pythProvider);
+
 /**
  * AgentKit Integration Route
  *
@@ -130,8 +133,10 @@ export async function prepareAgentkitAndWalletProvider(): Promise<{
         cdpSmartWalletActionProvider(),
         x402ActionProvider(),
         // zeroXActionProvider(),
-        newPythActionProvider(),
-        tradeStrategyActionProvider(),
+        //newPythActionProvider(),
+        //tradeStrategyActionProvider(),
+        pythProvider,
+        tradeProvider,
         dexScreenerActionProvider(),
         swapActionProvider(),
       ],
